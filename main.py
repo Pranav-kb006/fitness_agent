@@ -1,46 +1,36 @@
-from fastapi import FastAPI, HTTPException
-from models import UserHealthData
+from fastapi import FastAPI, Request
+from pydantic import BaseModel
 from brain import analyze_wellness
+from memory import store_memory  # <--- IMPORT MEMORY
 
-app = FastAPI(title="Fitness Agent Swarm - Wellness Node")
+app = FastAPI()
 
-# This simulated "Database" holds the latest state for other agents to read
-SYSTEM_STATE = {
-    "latest_wellness_context": {}
-}
+# This is the data structure we expect from the watch
+class VitalData(BaseModel):
+    user_id: str
+    date: str
+    sleep_hours: float
+    hrv: int
+    rhr: int
 
-@app.post("/ingest-wellness-data")
-async def process_wearable_data(data: UserHealthData):
-    """
-    1. Receives data from frontend (Watch)
-    2. Validates it
-    3. Sends to Gemini (Brain)
-    4. Updates the System State for other agents
-    """
-    try:
-        print(f"Received data for {data.user_id}...")
-        
-        # Call the AI Brain
-        analysis = analyze_wellness(data)
-        
-        # Update the Global State (This is the 'Feed' for other agents)
-        SYSTEM_STATE["latest_wellness_context"] = analysis
-        
-        return {
-            "status": "success", 
-            "message": "Wellness data processed. Context updated for Nutrition/Exercise agents.",
-            "generated_context": analysis
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@app.get("/")
+def home():
+    return {"status": "active", "message": "Fitness Agent is Ready"}
 
-@app.get("/get-agent-context")
-async def get_context():
-    """
-    Your Nutrition/Exercise Agents will call this endpoint 
-    to know what to do today.
-    """
-    return SYSTEM_STATE["latest_wellness_context"]
+@app.post("/webhook/vital")
+async def receive_vital_data(data: VitalData):
+    print(f"📥 Received Vital Event: {data}")
 
-# Run with: uvicorn main:app --reload
+    # 1. Ask the Brain (Gemini)
+    analysis = analyze_wellness(data)
+    
+    # 2. Store in Memory (Pinecone) <--- THIS PART WAS LIKELY MISSING
+    # We pass the data we received + the analysis we just made
+    store_memory(
+        user_id=data.user_id,
+        date=data.date,
+        analysis_json=analysis
+    )
+
+    print("✅ Analysis Complete & Saved.")
+    return analysis

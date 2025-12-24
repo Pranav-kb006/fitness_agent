@@ -1,50 +1,38 @@
 import os
 import json
-from google import genai
-from models import UserHealthData
+import google.generativeai as genai
+from dotenv import load_dotenv
 
-def analyze_wellness(data: UserHealthData):
-    # 1. Initialize the Client using the new library
-    # Make sure you ran $env:GOOGLE_API_KEY="..." in your terminal first!
-    client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+load_dotenv()
+
+# Configure Gemini
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+
+def analyze_wellness(data):
+    model = genai.GenerativeModel('gemini-2.5-flash')
     
-    # 2. The Prompt
-    system_prompt = f"""
-    You are the Wellness Agent. Analyze this user health data.
+    # 1. Create the Prompt
+    # Note: We changed data.total_sleep_hours -> data.sleep_hours
+    prompt = f"""
+    Act as a professional athletic coach. Analyze this daily data:
     
-    DATA:
-    - Sleep: {data.total_sleep_hours} hrs
-    - HRV: {data.hrv_score}
-    - RHR: {data.resting_heart_rate}
+    - Sleep: {data.sleep_hours} hrs  <--- FIXED HERE
+    - HRV: {data.hrv} ms
+    - Resting Heart Rate: {data.rhr} bpm
     
-    RULES:
-    1. If Sleep < 6h OR HRV < 40: Set "readiness_score" low (0-40).
-    2. If Sleep > 7h AND HRV > 60: Set "readiness_score" high (70-100).
-    
-    OUTPUT SCHEMA (JSON ONLY):
+    Output ONLY valid JSON with this structure (no markdown, no quotes around the block):
     {{
-        "readiness_score": (int),
-        "exercise_instruction": (string),
-        "nutrition_instruction": (string),
-        "flag_manager": (boolean)
+      "readiness_score": (0-100),
+      "exercise_instruction": "string",
+      "nutrition_instruction": "string",
+      "flag_manager": true/false
     }}
     """
     
-    try:
-        # 3. Call the model (New Syntax)
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=system_prompt,
-            config={
-                "response_mime_type": "application/json"
-            }
-        )
-        
-        # 4. Parse JSON
-        if response.text is None:
-            return {"error": "Empty response from AI"}
-        return json.loads(response.text)
-        
-    except Exception as e:
-        print(f"AI Error: {e}")
-        return {"error": "AI processing failed", "details": str(e)}
+    # 2. Get the Response
+    response = model.generate_content(prompt)
+    
+    # 3. Clean the Response (Remove ```json ... ``` if Gemini adds it)
+    clean_text = response.text.replace("```json", "").replace("```", "").strip()
+    
+    return json.loads(clean_text)
